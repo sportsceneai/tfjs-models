@@ -36,8 +36,11 @@ import {setBackendAndEnvFlags} from './util';
 let detector, camera, stats;
 let startInferenceTime, numInferences = 0;
 let inferenceTimeSum = 0, lastPanelUpdate = 0;
+let currentTime = 0;
+
 let rafId;
 const statusElement = document.getElementById('status');
+const frameElement = document.getElementById('frameNumber');
 
 async function createDetector() {
   switch (STATE.model) {
@@ -108,6 +111,9 @@ function endEstimatePosesStats() {
   }
 }
 
+// function trackPoseChangeOverTime(poses) {
+//     console.log(poses);
+// }
 async function renderResult() {
   // FPS only counts the time it takes to finish estimatePoses.
   beginEstimatePosesStats();
@@ -125,6 +131,7 @@ async function renderResult() {
   // model, which shouldn't be rendered.
   if (poses.length > 0 && !STATE.isModelChanged) {
     camera.drawResults(poses);
+    // trackPoseChangeOverTime(poses);
   }
 }
 
@@ -148,6 +155,8 @@ async function updateVideo(event) {
     };
   });
 
+  camera.video.volume = 0;
+
   const videoWidth = camera.video.videoWidth;
   const videoHeight = camera.video.videoHeight;
   // Must set below two lines, otherwise video element doesn't show.
@@ -159,16 +168,74 @@ async function updateVideo(event) {
   statusElement.innerHTML = 'Video is loaded.';
 }
 
+async function pause() {
+  currentTime = video.currentTime;
+  video.pause();
+  camera.video.pause();
+  // camera.mediaRecorder.pause();
+}
+
+async function nextFrame() {
+  currentTime += 1/24;
+  video.currentTime = currentTime;
+
+  await new Promise((resolve) => {
+    camera.video.onseeked = () => {
+      resolve(video);
+    };
+  });
+
+  frameElement.innerHTML = 'Frame ' + (currentTime * 24);
+  await renderResult();
+}
+
+async function previousFrame() {
+  currentTime = currentTime - 1/24;
+  if (currentTime < 0) {
+    currentTime = 0;
+  }
+  video.currentTime = currentTime;
+
+  await new Promise((resolve) => {
+    camera.video.onseeked = () => {
+      resolve(video);
+    };
+  });
+
+  frameElement.innerHTML = 'Frame ' + (currentTime * 24);
+  await renderResult();
+}
+
 async function runFrame() {
   if (video.paused) {
     // video has finished.
-    camera.mediaRecorder.stop();
-    camera.clearCtx();
-    camera.video.style.visibility = 'visible';
-    return;
+    // camera.mediaRecorder.stop();
+    // camera.clearCtx();
+    // camera.video.style.visibility = 'visible';
+    // return;
   }
+  currentTime = video.currentTime;
+  frameElement.innerHTML = 'Frame ' + (currentTime * 24);
   await renderResult();
   rafId = requestAnimationFrame(runFrame);
+}
+
+async function warmup() {
+  statusElement.innerHTML = 'Warming up model.';
+
+  // Warming up pipeline.
+  const [runtime, $backend] = STATE.backend.split('-');
+
+  if (runtime === 'tfjs') {
+    const warmUpTensor =
+        tf.fill([camera.video.height, camera.video.width, 3], 0, 'float32');
+    await detector.estimatePoses(
+        warmUpTensor,
+        {maxPoses: STATE.modelConfig.maxPoses, flipHorizontal: false});
+    warmUpTensor.dispose();
+    statusElement.innerHTML = 'Model is warmed up.';
+  }
+  camera.video.style.visibility = 'hidden';
 }
 
 async function run() {
@@ -189,9 +256,9 @@ async function run() {
 
   camera.video.style.visibility = 'hidden';
   video.pause();
-  video.currentTime = 0;
+  video.currentTime = currentTime || 0;
   video.play();
-  camera.mediaRecorder.start();
+  // camera.mediaRecorder.start();
 
   await new Promise((resolve) => {
     camera.video.onseeked = () => {
@@ -217,8 +284,20 @@ async function app() {
 
   await setBackendAndEnvFlags(STATE.flags, STATE.backend);
 
-  const runButton = document.getElementById('submit');
+  const runButton = document.getElementById('runButton');
   runButton.onclick = run;
+
+  const pauseButton = document.getElementById('pauseButton');
+  pauseButton.onclick = pause;
+
+  const warmupButton = document.getElementById('warmupButton');
+  warmupButton.onclick = warmup;
+
+  const nextFrameButton = document.getElementById('nextFrameButton');
+  nextFrameButton.onclick = nextFrame;
+
+  const previousFrameButton = document.getElementById('previousFrameButton');
+  previousFrameButton.onclick = previousFrame;
 
   const uploadButton = document.getElementById('videofile');
   uploadButton.onchange = updateVideo;

@@ -73,16 +73,19 @@ export class Context {
 
     for (const i of keypointInd.middle) {
       this.drawKeypoint(keypoints[i]);
+      this.drawKeypointValues(keypoints[i]);
     }
 
     this.ctx.fillStyle = 'Green';
     for (const i of keypointInd.left) {
       this.drawKeypoint(keypoints[i]);
+      this.drawKeypointValues(keypoints[i]);
     }
 
     this.ctx.fillStyle = 'Orange';
     for (const i of keypointInd.right) {
       this.drawKeypoint(keypoints[i]);
+      this.drawKeypointValues(keypoints[i]);
     }
   }
 
@@ -97,6 +100,17 @@ export class Context {
       this.ctx.fill(circle);
       this.ctx.stroke(circle);
     }
+  }
+
+  /**
+   * Draw keypoint coordinates onto canvas frame
+   * @param keypoint A list of keypoints.
+   */
+  drawKeypointValues(keypoint) {
+    this.ctx.font = '24px serif';
+    let zText = keypoint.z ? ' z: ' + Math.floor(z) : '';
+    let textToRender = 'x: ' + Math.floor(keypoint.x) + ' y: ' + Math.floor(keypoint.y) + zText;
+    this.ctx.fillText(textToRender, keypoint.x, keypoint.y + 10);
   }
 
   /**
@@ -134,6 +148,10 @@ export class Context {
 
   stop() {
     this.mediaRecorder.stop();
+  }
+
+  pause() {
+    this.mediaRecorder.pause();
   }
 
   handleDataAvailable(event) {
