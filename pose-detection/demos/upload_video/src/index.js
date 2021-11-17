@@ -36,7 +36,10 @@ import {setBackendAndEnvFlags} from './util';
 let detector, camera, stats;
 let startInferenceTime, numInferences = 0;
 let inferenceTimeSum = 0, lastPanelUpdate = 0;
-let currentTime = 0;
+let currentTime = 0.0, lastTime = 0;
+let globalPoses;
+let rightAnkleX, leftAnkleX, lastRightAnkleX, lastLeftAnkleX, leftAnkleSpeed, rightAnkleSpeed;
+let leftFiveSpeeds = [], rightFiveSpeeds = [];
 
 let rafId;
 const statusElement = document.getElementById('status');
@@ -111,9 +114,57 @@ function endEstimatePosesStats() {
   }
 }
 
-// function trackPoseChangeOverTime(poses) {
-//     console.log(poses);
-// }
+function printPose() {
+  console.log('keypoints');
+  console.log(globalPoses[0].keypoints);
+  console.log('left_ankle');
+  console.log(globalPoses[0].keypoints[15]);
+  console.log('right_ankle');
+  console.log(globalPoses[0].keypoints[16]);
+  console.log('score: ' + globalPoses[0].score);
+  console.log('currentTime: ' + currentTime);
+  trackSpeeds();
+}
+
+function trackSpeeds() {
+  leftAnkleX = globalPoses[0].keypoints[15].x;
+  rightAnkleX = globalPoses[0].keypoints[16].x;
+  leftAnkleSpeed = (leftAnkleX - lastLeftAnkleX)/(currentTime - lastTime);
+  rightAnkleSpeed = (rightAnkleX - lastRightAnkleX)/(currentTime - lastTime);
+  leftFiveSpeeds.push(leftAnkleSpeed);
+  if (leftFiveSpeeds.length > 10) {
+    leftFiveSpeeds.shift();
+  }
+  rightFiveSpeeds.push(rightAnkleSpeed);
+  if (rightFiveSpeeds.length > 10) {
+    rightFiveSpeeds.shift();
+  }
+  console.log('leftSpeed: ' + leftAnkleSpeed);
+  console.log('rightSpeed: ' + rightAnkleSpeed);
+  lastLeftAnkleX = leftAnkleX;
+  lastRightAnkleX= rightAnkleX;
+}
+
+
+function allSpeedsSlow() {
+  console.log('rightFiveSpeeds');
+  console.log(rightFiveSpeeds);
+  console.log('leftFiveSpeeds');
+  console.log(leftFiveSpeeds);
+  let allSlowRight = true;
+  let allSlowLeft = true;
+  for (let i = 0; i < rightFiveSpeeds.length; i++) {
+    if (Math.abs(rightFiveSpeeds[i]) > 200) {
+      allSlowRight = false;
+    }
+  }
+  for (let i = 0; i < leftFiveSpeeds.length; i++) {
+    if (Math.abs(leftFiveSpeeds[i]) > 200) {
+      allSlowLeft = false;
+    }
+  }
+  return allSlowRight && allSlowLeft;
+}
 async function renderResult() {
   // FPS only counts the time it takes to finish estimatePoses.
   beginEstimatePosesStats();
@@ -122,6 +173,7 @@ async function renderResult() {
       camera.video,
       {maxPoses: STATE.modelConfig.maxPoses, flipHorizontal: false});
 
+  globalPoses = poses;
   endEstimatePosesStats();
 
   camera.drawCtx();
@@ -131,7 +183,10 @@ async function renderResult() {
   // model, which shouldn't be rendered.
   if (poses.length > 0 && !STATE.isModelChanged) {
     camera.drawResults(poses);
-    // trackPoseChangeOverTime(poses);
+    trackSpeeds();
+    if (allSpeedsSlow()) {
+      console.log('cut at frame: ' + currentTime);
+    };
   }
 }
 
@@ -169,6 +224,7 @@ async function updateVideo(event) {
 }
 
 async function pause() {
+  lastTime = currentTime;
   currentTime = video.currentTime;
   video.pause();
   camera.video.pause();
@@ -176,6 +232,7 @@ async function pause() {
 }
 
 async function nextFrame() {
+  lastTime = currentTime;
   currentTime += 1/24;
   video.currentTime = currentTime;
 
@@ -187,9 +244,11 @@ async function nextFrame() {
 
   frameElement.innerHTML = 'Frame ' + (currentTime * 24);
   await renderResult();
+  // printPose();
 }
 
 async function previousFrame() {
+  lastTime = currentTime;
   currentTime = currentTime - 1/24;
   if (currentTime < 0) {
     currentTime = 0;
@@ -204,6 +263,7 @@ async function previousFrame() {
 
   frameElement.innerHTML = 'Frame ' + (currentTime * 24);
   await renderResult();
+  printPose();
 }
 
 async function runFrame() {
@@ -214,6 +274,7 @@ async function runFrame() {
     // camera.video.style.visibility = 'visible';
     // return;
   }
+  lastTime = currentTime;
   currentTime = video.currentTime;
   frameElement.innerHTML = 'Frame ' + (currentTime * 24);
   await renderResult();
@@ -298,6 +359,9 @@ async function app() {
 
   const previousFrameButton = document.getElementById('previousFrameButton');
   previousFrameButton.onclick = previousFrame;
+
+  const printPoseButton = document.getElementById('printPoseButton');
+  printPoseButton.onclick = printPose;
 
   const uploadButton = document.getElementById('videofile');
   uploadButton.onchange = updateVideo;
