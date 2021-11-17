@@ -36,8 +36,14 @@ import {setBackendAndEnvFlags} from './util';
 let detector, camera, stats;
 let startInferenceTime, numInferences = 0;
 let inferenceTimeSum = 0, lastPanelUpdate = 0;
+let currentTime = 0.0, lastTime = 0;
+let globalPoses;
+let rightAnkleX, leftAnkleX, lastRightAnkleX, lastLeftAnkleX, leftAnkleSpeed, rightAnkleSpeed;
+let leftFiveSpeeds = [], rightFiveSpeeds = [];
+
 let rafId;
 const statusElement = document.getElementById('status');
+const frameElement = document.getElementById('frameNumber');
 
 async function createDetector() {
   switch (STATE.model) {
@@ -108,6 +114,57 @@ function endEstimatePosesStats() {
   }
 }
 
+function printPose() {
+  console.log('keypoints');
+  console.log(globalPoses[0].keypoints);
+  console.log('left_ankle');
+  console.log(globalPoses[0].keypoints[15]);
+  console.log('right_ankle');
+  console.log(globalPoses[0].keypoints[16]);
+  console.log('score: ' + globalPoses[0].score);
+  console.log('currentTime: ' + currentTime);
+  trackSpeeds();
+}
+
+function trackSpeeds() {
+  leftAnkleX = globalPoses[0].keypoints[15].x;
+  rightAnkleX = globalPoses[0].keypoints[16].x;
+  leftAnkleSpeed = (leftAnkleX - lastLeftAnkleX)/(currentTime - lastTime);
+  rightAnkleSpeed = (rightAnkleX - lastRightAnkleX)/(currentTime - lastTime);
+  leftFiveSpeeds.push(leftAnkleSpeed);
+  if (leftFiveSpeeds.length > 10) {
+    leftFiveSpeeds.shift();
+  }
+  rightFiveSpeeds.push(rightAnkleSpeed);
+  if (rightFiveSpeeds.length > 10) {
+    rightFiveSpeeds.shift();
+  }
+  console.log('leftSpeed: ' + leftAnkleSpeed);
+  console.log('rightSpeed: ' + rightAnkleSpeed);
+  lastLeftAnkleX = leftAnkleX;
+  lastRightAnkleX= rightAnkleX;
+}
+
+
+function allSpeedsSlow() {
+  console.log('rightFiveSpeeds');
+  console.log(rightFiveSpeeds);
+  console.log('leftFiveSpeeds');
+  console.log(leftFiveSpeeds);
+  let allSlowRight = true;
+  let allSlowLeft = true;
+  for (let i = 0; i < rightFiveSpeeds.length; i++) {
+    if (Math.abs(rightFiveSpeeds[i]) > 200) {
+      allSlowRight = false;
+    }
+  }
+  for (let i = 0; i < leftFiveSpeeds.length; i++) {
+    if (Math.abs(leftFiveSpeeds[i]) > 200) {
+      allSlowLeft = false;
+    }
+  }
+  return allSlowRight && allSlowLeft;
+}
 async function renderResult() {
   // FPS only counts the time it takes to finish estimatePoses.
   beginEstimatePosesStats();
@@ -116,6 +173,7 @@ async function renderResult() {
       camera.video,
       {maxPoses: STATE.modelConfig.maxPoses, flipHorizontal: false});
 
+  globalPoses = poses;
   endEstimatePosesStats();
 
   camera.drawCtx();
@@ -125,6 +183,10 @@ async function renderResult() {
   // model, which shouldn't be rendered.
   if (poses.length > 0 && !STATE.isModelChanged) {
     camera.drawResults(poses);
+    trackSpeeds();
+    if (allSpeedsSlow()) {
+      console.log('cut at frame: ' + currentTime);
+    };
   }
 }
 
@@ -148,6 +210,8 @@ async function updateVideo(event) {
     };
   });
 
+  camera.video.volume = 0;
+
   const videoWidth = camera.video.videoWidth;
   const videoHeight = camera.video.videoHeight;
   // Must set below two lines, otherwise video element doesn't show.
@@ -159,16 +223,80 @@ async function updateVideo(event) {
   statusElement.innerHTML = 'Video is loaded.';
 }
 
+async function pause() {
+  lastTime = currentTime;
+  currentTime = video.currentTime;
+  video.pause();
+  camera.video.pause();
+  // camera.mediaRecorder.pause();
+}
+
+async function nextFrame() {
+  lastTime = currentTime;
+  currentTime += 1/24;
+  video.currentTime = currentTime;
+
+  await new Promise((resolve) => {
+    camera.video.onseeked = () => {
+      resolve(video);
+    };
+  });
+
+  frameElement.innerHTML = 'Frame ' + (currentTime * 24);
+  await renderResult();
+  // printPose();
+}
+
+async function previousFrame() {
+  lastTime = currentTime;
+  currentTime = currentTime - 1/24;
+  if (currentTime < 0) {
+    currentTime = 0;
+  }
+  video.currentTime = currentTime;
+
+  await new Promise((resolve) => {
+    camera.video.onseeked = () => {
+      resolve(video);
+    };
+  });
+
+  frameElement.innerHTML = 'Frame ' + (currentTime * 24);
+  await renderResult();
+  printPose();
+}
+
 async function runFrame() {
   if (video.paused) {
     // video has finished.
-    camera.mediaRecorder.stop();
-    camera.clearCtx();
-    camera.video.style.visibility = 'visible';
-    return;
+    // camera.mediaRecorder.stop();
+    // camera.clearCtx();
+    // camera.video.style.visibility = 'visible';
+    // return;
   }
+  lastTime = currentTime;
+  currentTime = video.currentTime;
+  frameElement.innerHTML = 'Frame ' + (currentTime * 24);
   await renderResult();
   rafId = requestAnimationFrame(runFrame);
+}
+
+async function warmup() {
+  statusElement.innerHTML = 'Warming up model.';
+
+  // Warming up pipeline.
+  const [runtime, $backend] = STATE.backend.split('-');
+
+  if (runtime === 'tfjs') {
+    const warmUpTensor =
+        tf.fill([camera.video.height, camera.video.width, 3], 0, 'float32');
+    await detector.estimatePoses(
+        warmUpTensor,
+        {maxPoses: STATE.modelConfig.maxPoses, flipHorizontal: false});
+    warmUpTensor.dispose();
+    statusElement.innerHTML = 'Model is warmed up.';
+  }
+  camera.video.style.visibility = 'hidden';
 }
 
 async function run() {
@@ -189,9 +317,9 @@ async function run() {
 
   camera.video.style.visibility = 'hidden';
   video.pause();
-  video.currentTime = 0;
+  video.currentTime = currentTime || 0;
   video.play();
-  camera.mediaRecorder.start();
+  // camera.mediaRecorder.start();
 
   await new Promise((resolve) => {
     camera.video.onseeked = () => {
@@ -217,8 +345,23 @@ async function app() {
 
   await setBackendAndEnvFlags(STATE.flags, STATE.backend);
 
-  const runButton = document.getElementById('submit');
+  const runButton = document.getElementById('runButton');
   runButton.onclick = run;
+
+  const pauseButton = document.getElementById('pauseButton');
+  pauseButton.onclick = pause;
+
+  const warmupButton = document.getElementById('warmupButton');
+  warmupButton.onclick = warmup;
+
+  const nextFrameButton = document.getElementById('nextFrameButton');
+  nextFrameButton.onclick = nextFrame;
+
+  const previousFrameButton = document.getElementById('previousFrameButton');
+  previousFrameButton.onclick = previousFrame;
+
+  const printPoseButton = document.getElementById('printPoseButton');
+  printPoseButton.onclick = printPose;
 
   const uploadButton = document.getElementById('videofile');
   uploadButton.onchange = updateVideo;

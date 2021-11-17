@@ -23,7 +23,6 @@ limitations under the License.
       position: relative;
     }
     #canvas-wrapper {
-      margin-top: 80px;
       position: relative;
     }
     canvas {
@@ -32,7 +31,20 @@ limitations under the License.
       left: 0;
     }
     #top-bar {
-      margin-left: 300px;
+      margin-left: 150px;
+      position: relative;
+    }
+    #second-bar {
+      margin-top: 10px;
+      position: relative;
+    }
+    #status {
+      margin-top: 50px;
+      position: relative;
+    }
+    #status {
+      margin-top: 50px;
+      margin-left: 50px;
       position: relative;
     }
   </style>
@@ -44,17 +56,23 @@ limitations under the License.
       <div id="top-bar">
         <label for="videofile">Upload a video file:</label>
         <input type="file" id="videofile" name="video" accept="video/*">
-        <button id="submit">Run</button>
+        <div id="second-bar">
+          <button id="runButton">Run</button>
+          <button id="pauseButton">Pause</button>
+          <button id="warmupButton">Warm Up Model</button>
+          <button id="nextFrameButton">Next Frame</button>
+          <button id="previousFrameButton">Previous Frame</button>
+          <button id="printPoseButton">Print</button>
+        </div>
       </div>
     </div>
+    <div id="status"></div>
+    <div id="frameNumber"></div>
     <div class="container" id="canvas-wrapper">
       <canvas id="output"></canvas>
       <video id="video">
         <source id="currentVID" src="" type="video/mp4">
       </video>
-    </div>
-    <div class="container">
-      <span id="status"></span>
     </div>
   </div>
 </body>

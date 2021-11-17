@@ -77,7 +77,7 @@ export const MODEL_BACKEND_MAP = {
   [posedetection.SupportedModels.PoseNet]: ['tfjs-webgl'],
   [posedetection.SupportedModels.MoveNet]: ['tfjs-webgl', 'tfjs-wasm'],
   [posedetection.SupportedModels.BlazePose]: ['mediapipe-gpu', 'tfjs-webgl']
-}
+};
 
 export const TUNABLE_FLAG_NAME_MAP = {
   PROD: 'production mode',
